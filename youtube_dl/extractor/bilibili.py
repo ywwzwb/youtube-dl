@@ -14,7 +14,34 @@ from ..utils import (
 )
 
 
-class BiliBiliIE(InfoExtractor):
+class BiliBiliBaseIE(InfoExtractor):
+    _APP_KEY = 'iVGUTjsxvpLeuDCf'
+    _BILIBILI_KEY = 'aHRmhWMLkdeMuILqORnYZocwMBpMEOdt'
+
+    def _getFormatFrom(self, bvid, cid, headers):
+        play_back_info = self._download_json(
+            'http://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&qn=80' % (bvid, cid),
+            bvid,
+            'downloding playback info for cid: %d' % (cid, ),
+            headers=headers)['data']
+        fragments = []
+        for fragment_idx, durl in enumerate(play_back_info['durl'], start=1):
+            # some video is splited to many fragments, here is this fragments
+            fragments.append({
+                'url': durl['url'],
+                'filesize': int_or_none(durl.get('size')),
+                'duration': float_or_none(durl.get('length'), 1000),
+            })
+        return {
+            "protocol": "common_fragment",
+            "fragments": fragments,
+            "http_headers": {
+                "Referer": str_or_none(headers.get("Referer"))
+            }
+        }
+
+
+class BiliBiliIE(BiliBiliBaseIE):
     _VALID_URL = r'''(?x)
                     https?://
                       (?:www\.)bilibili.(?:com|tv)
@@ -113,9 +140,6 @@ class BiliBiliIE(InfoExtractor):
     }
     ]
 
-    _APP_KEY = 'iVGUTjsxvpLeuDCf'
-    _BILIBILI_KEY = 'aHRmhWMLkdeMuILqORnYZocwMBpMEOdt'
-
     def _report_error(self, result):
         if 'message' in result:
             raise ExtractorError('%s said: %s' % (self.IE_NAME, result['message']), expected=True)
@@ -168,57 +192,23 @@ class BiliBiliIE(InfoExtractor):
         headers.update(self.geo_verification_headers())
 
         entries = []
-
-        RENDITIONS = ('qn=80&quality=80&type=', 'quality=2&type=mp4')
         for part_info in part_list:
             # try to get video playback url, use
-            for num, rendition in enumerate(RENDITIONS, start=1):
-                payload = 'appkey=%s&cid=%s&otype=json&%s' % (self._APP_KEY, part_info['cid'], rendition)
-                sign = hashlib.md5((payload + self._BILIBILI_KEY).encode('utf-8')).hexdigest()
-
-                video_info = self._download_json(
-                    'http://interface.bilibili.com/v2/playurl?%s&sign=%s' % (payload, sign),
-                    original_video_id, note='Downloading video info for cid: %s' % (part_info['cid'], ),
-                    headers=headers, fatal=num == len(RENDITIONS))
-
-                if not video_info:
-                    continue
-
-                if 'durl' not in video_info:
-                    if num < len(RENDITIONS):
-                        continue
-                    self._report_error(video_info)
-                part_title = part_info['title']
-                if len(part_list) == 1:
-                    # if video only got one part, use video title instead of part title
-                    part_title = title
-                for idx, durl in enumerate(video_info['durl'], start=1):
-                    # some video is splited to many fragments, here is this fragments
-                    formats = [{
-                        'url': durl['url'],
-                        'filesize': int_or_none(durl['size']),
-                    }]
-                    for backup_url in durl.get('backup_url', []):
-                        formats.append({
-                            'url': backup_url,
-                            # backup URLs have lower priorities
-                            'preference': -2 if 'hd.mp4' in backup_url else -3,
-                        })
-
-                    for a_format in formats:
-                        a_format.setdefault('http_headers', {}).update({
-                            'Referer': url,
-                        })
-
-                    self._sort_formats(formats)
-
-                    entries.append({
-                        'id': '%s_%s_%s' % (original_video_id, part_info['cid'], idx),
-                        'duration': float_or_none(durl.get('length'), 1000),
-                        'formats': formats,
-                        'title': part_title
-                    })
-                break
+            format = self._getFormatFrom(video_id, part_info['cid'], headers)
+            part_title = part_info['title']
+            if len(part_list) == 1:
+                # if video only got one part, use video title instead of part title
+                part_title = title
+            duration = 0
+            for fragment in format.get('fragments', []):
+                duration += float_or_none(fragment.get('duration'), default=0)
+            entries.append({
+                'id': '%s_%s' % (original_video_id, part_info['cid']),
+                'duration': duration,
+                'formats': [format],
+                'title': part_title
+            })
+            break
         if not title:
             title = self._html_search_regex(
                 ('<h1[^>]+\btitle=(["\'])(?P<title>(?:(?!\1).)+)\1',
@@ -269,7 +259,7 @@ class BiliBiliIE(InfoExtractor):
             return playlist_entry
 
 
-class BiliBiliBangumiIE(InfoExtractor):
+class BiliBiliBangumiIE(BiliBiliBaseIE):
     _VALID_URL = r'https?://(?:www\.)bilibili.com/bangumi/media/[mD][dD](?P<id>\d+)'
 
     IE_NAME = 'bangumi.bilibili.com'
@@ -348,22 +338,11 @@ class BiliBiliBangumiIE(InfoExtractor):
                 formats = [{
                     'url': durl['url'],
                     'filesize': int_or_none(durl.get('size')),
+                    'duration': float_or_none(durl.get('length'), 1000),
                 }]
-                for backup_url in durl.get('backup_url', []):
-                    formats.append({
-                        'url': backup_url,
-                        # backup URLs have lower priorities
-                        'preference': -2 if 'hd.mp4' in backup_url else -3,
-                    })
-
-                for a_format in formats:
-                    a_format.setdefault('http_headers', {}).update({
-                        'Referer': url,
-                    })
-
                 self._sort_formats(formats)
                 entries.append({
-                    'id': '%s_%d_%d' % (bangumi_id, idx, fragment_idx),
+                    'id': '%s_%d' % (bangumi_id, idx),
                     'duration': float_or_none(durl.get('length'), 1000),
                     'formats': formats,
                     'title': episode.get('long_title', '')

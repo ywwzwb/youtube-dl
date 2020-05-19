@@ -121,6 +121,7 @@ class InfoExtractor(object):
                                        is parsed from a string (in case of
                                        fragmented media)
                                    for MSS - URL of the ISM manifest.
+                                   for common fragment - URL just leave empty.
                     * manifest_url
                                  The URL of the manifest file in case of
                                  fragmented media:
@@ -155,7 +156,8 @@ class InfoExtractor(object):
                     * protocol   The protocol that will be used for the actual
                                  download, lower-case.
                                  "http", "https", "rtsp", "rtmp", "rtmpe",
-                                 "m3u8", "m3u8_native" or "http_dash_segments".
+                                 "m3u8", "m3u8_native", "http_dash_segments" 
+                                 "or "common_fragment".
                     * fragment_base_url
                                  Base URL for fragments. Each fragment's path
                                  value (if present) will be relative to

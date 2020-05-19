@@ -1526,6 +1526,15 @@ class YoutubeDL(object):
 
         def is_wellformed(f):
             url = f.get('url')
+            if f.get('protocol', '') == 'common_fragment':
+                fragments = f.get('fragments', [])
+                if not isinstance(fragments, list) or len(fragments) == 0:
+                    self.report_warning(
+                        '"url" field is missing or empty - skipping format, '
+                        'there is an error in extractor')
+                    return False
+                for fragment in fragments:
+                    fragment_url = fragment
             if not url:
                 self.report_warning(
                     '"url" field is missing or empty - skipping format, '
